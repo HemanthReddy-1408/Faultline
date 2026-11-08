@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Faultline</title>
+<style>
+:root{--bg:#fafaf9;--fg:#1c1917;--mut:#78716c;--card:#fff;--bd:#e7e5e4;--ac:#b45309;--ok:#15803d;--bad:#b91c1c}
+@media(prefers-color-scheme:dark){:root{--bg:#0c0a09;--fg:#e7e5e4;--mut:#a8a29e;--card:#1c1917;--bd:#292524;--ac:#fbbf24;--ok:#4ade80;--bad:#f87171}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,sans-serif}
+header,main{padding:14px 20px;max-width:1100px;margin:auto}header{display:flex;gap:10px;flex-wrap:wrap;align-items:center;border-bottom:1px solid var(--bd)}
+h1{font-size:18px;margin:0 8px 0 0}input,select,button{background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;font:inherit}
+button.p{border-color:var(--ac);color:var(--ac)}.card{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:12px;margin:12px 0}
+pre{white-space:pre-wrap;word-break:break-word;font:12px/1.5 ui-monospace,monospace;margin:0}.mut{color:var(--mut)}.ok{color:var(--ok)}.bad{color:var(--bad)}
+.act{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--bd)}
+</style></head><body>
+<header><h1>Faultline</h1><input id="key" placeholder="X-API-Key" type="password" size="18">
+<select id="cause"></select><select id="variant"><option>rich</option><option>plain</option><option>bare</option></select>
+<button class="p" id="go">Investigate demo (synthetic) bundle</button><span class="mut" id="st"></span></header>
+<main><div class="card mut">Evidence-grounded incident investigation. Reports separate confirmed facts, hypotheses, missing evidence and alternatives; every consequential action waits for a human with the <b>approver</b> role. Demo bundles are generated and labelled synthetic.</div>
+<div id="out"></div></main>
+<script>
+const $=s=>document.querySelector(s);const H=()=>({'X-API-Key':$('#key').value,'content-type':'application/json'});
+const api=async(u,o={})=>{const r=await fetch(u,{...o,headers:{...H(),...(o.headers||{})}});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||r.status);return j};
+const CAUSES="pool_exhaustion db_timeout_lowered db_degradation db_service_down db_port_changed idle_timeout_mismatch db_failover memory_limit_reduced unbounded_cache debug_logging_enabled artifact_cleanup_removed service_renamed dns_outage cert_expired ca_bundle_removed secret_rotated token_ttl_reduced unpinned_bump lockfile_removed race_condition order_dependency retry_storm quota_reduced env_var_renamed secret_not_mounted".split(' ');
+$('#cause').innerHTML=CAUSES.map(c=>`<option>${c}</option>`).join('');
+$('#go').onclick=async()=>{try{$('#st').textContent='uploading…';const b=await api(`/demo/bundle?cause=${$('#cause').value}&variant=${$('#variant').value}`);
+ await api('/bundles',{method:'POST',body:JSON.stringify(b)});const {id}=await api('/investigations?incident_id='+b.incident_id,{method:'POST'});
+ for(let i=0;i<120;i++){const inv=await api('/investigations/'+id);$('#st').textContent=inv.status;if(inv.status!=='running'){return show(id,inv)}await new Promise(r=>setTimeout(r,500))}}catch(e){$('#st').innerHTML=`<span class=bad>${e.message}</span>`}};
+async function show(id,inv){if(inv.status==='failed'){$('#out').innerHTML=`<div class=card><span class=bad>${inv.error}</span></div>`;return}
+ const md=await fetch(`/investigations/${id}/report.md`,{headers:H()}).then(r=>r.text());
+ const acts=inv.actions.map(a=>`<div class=act><b>${a.id}</b><code>${a.tool}(${JSON.stringify(a.args).slice(0,90)})</code><span class=mut>${a.state}</span>${a.state==='proposed'?`<button data-a="${a.id}" data-d="approved">Approve</button><button data-a="${a.id}" data-d="rejected">Reject</button>`:''}</div>`).join('');
+ $('#out').innerHTML=`<div class=card><pre>${md.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre></div><div class=card><b>Actions</b>${acts}</div>`;
+ document.querySelectorAll('[data-a]').forEach(b=>b.onclick=async()=>{try{await api(`/investigations/${id}/actions/${b.dataset.a}`,{method:'POST',body:JSON.stringify({decision:b.dataset.d})});show(id,await api('/investigations/'+id))}catch(e){alert(e.message)}})}
+</script></body></html>
